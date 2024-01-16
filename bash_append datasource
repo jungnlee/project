@@ -1,0 +1,144 @@
+#!/bin/bash
+
+ 
+
+# Variables
+TABCMD_PATH="/sw/tableau/packages/customer-bin.20223.23.1012.0344"
+SERVER_URL="https://wwww.example.co.kr"
+USERNAME="admin"
+PASSWORD="1234"
+DATA_DIR="/data/tableau_data/Hyper/V_FL_SL_PROD_STCK/T0"
+PROJECT_PATH="0.DATA/Extracts"
+PROJECT_NAME="V_FL_SL_매출상품재고"
+LOGFILE="/data/tableau_data/Hyper/V_FL_SL_PROD_STCK/your_logfile.log"
+
+i
+
+# Function to execute a command and stop if it fails
+
+execute_and_log() {
+
+    "$@"
+
+    if [ $? -ne 0 ]; then
+
+        echo "Command failed: $@" | tee -a "$LOGFILE"
+
+        exit 1
+
+    fi
+
+}
+# Function to sleep until a specific time
+
+sleep_until() {
+
+    current_epoch=$(date +%s)
+    target_epoch=$(date -d "$1" +%s)
+    sleep_seconds=$((target_epoch - current_epoch))
+    if [ $sleep_seconds -gt 0 ]; then
+
+        sleep $sleep_seconds
+
+    fi
+}
+
+# Function to check session and re-login if expired
+check_session_and_relogin() {
+    # Check if session is still active; this is a placeholder, adjust as needed
+    if [ session_expired_condition ]; then
+
+        echo "Session expired. Re-logging in..."
+
+        execute_and_log "$TABCMD_PATH/tabcmd" login -s "$SERVER_URL" -u "$USERNAME" -p "$PASSWORD"
+
+    fi
+
+}
+
+# Main script
+
+# Step 1: Login
+
+execute_and_log "$TABCMD_PATH/tabcmd" login -s "$SERVER_URL" -u "$USERNAME" -p "$PASSWORD"
+
+# Step 2: Refresh at current time
+
+sleep_until "9:00"
+execute_and_log "$TABCMD_PATH/tabcmd" refreshextracts --datasource "V_FL_SL_PROD_STCK_Temp" --parent-project-path "$PROJECT_PATH" --project "$PROJECT_NAME"
+# Step 3: Download T0_1 file
+
+execute_and_log "$TABCMD_PATH/tabcmd" get "/datasources/V_FL_SL_PROD_STCK_0_1.tdsx" -f "$DATA_DIR/V_FL_SL_PROD_STCK_0_1.zip"
+
+# Step 4: Unzip T0_1 file
+execute_and_log yes | unzip "$DATA_DIR/V_FL_SL_PROD_STCK_0_1.zip" -d "$DATA_DIR"
+# Step 5: Rename T0_1 file
+
+#execute_and_log mv "$DATA_DIR/Data/Extracts"/*.hyper "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_1.hyper"
+
+# Step 6: Replace T0_1
+
+execute_and_log "$TABCMD_PATH/tabcmd" publish "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_1.hyper" --name "V_FL_SL_PROD_STCK_Temp" --parent-project-path "$PROJECT_PATH" --project "$PROJECT_NAME" --append
+
+# step 7 : remove
+rm -rf "$DATA_DIR"/*.tds
+rm -f  "$DATA_DIR"/*.zip
+rm -rf  "$DATA_DIR"/Data/Extracts/*.hyper
+
+check_session_and_relogin
+
+# Step 7: Download T0_2 file
+
+execute_and_log "$TABCMD_PATH/tabcmd" get "/datasources/V_FL_SL_PROD_STCK_0_2.tdsx" -f "$DATA_DIR/V_FL_SL_PROD_STCK_0_2.zip"
+
+# Step 8: Unzip T0_2 file
+
+execute_and_log yes | unzip "$DATA_DIR/V_FL_SL_PROD_STCK_0_2.zip" -d "$DATA_DIR"
+
+# Step 9: Rename T0_2 file
+
+#execute_and_log mv "$DATA_DIR/Data/Extracts"/*.hyper "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_2.hyper"
+
+#sleep 111
+
+# Step 10: Replace T0_2
+
+execute_and_log "$TABCMD_PATH/tabcmd" publish "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_2.hyper" --name "V_FL_SL_PROD_STCK_Temp" --parent-project-path "$PROJECT_PATH" --project "$PROJECT_NAME" --append
+
+# step 11 : remove
+rm -rf "$DATA_DIR"/*.tds
+rm -f  "$DATA_DIR"/*.zip
+rm -rf  "$DATA_DIR"/Data/Extracts/*.hyper
+
+check_session_and_relogin
+
+# Step 12: Download T0_3 file
+
+execute_and_log "$TABCMD_PATH/tabcmd" get "/datasources/V_FL_SL_PROD_STCK_0_3.tdsx" -f "$DATA_DIR/V_FL_SL_PROD_STCK_0_3.zip"
+
+# Step 13: Sleep for 900 s::econds
+# Step 14: Unzip T0_3 file
+
+execute_and_log yes | unzip "$DATA_DIR/V_FL_SL_PROD_STCK_0_3.zip" -d "$DATA_DIR"
+
+# Step 15: Rename T0_3 file
+
+#execute_and_log mv "$DATA_DIR/Data/Extracts"/*.hyper "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_3.hyper"
+# Step 16: Replace T0_3
+
+execute_and_log "$TABCMD_PATH/tabcmd" publish "$DATA_DIR/Data/Extracts/V_FL_SL_PROD_STCK_0_3.hyper" --name "V_FL_SL_PROD_STCK_Temp" --parent-project-path "$PROJECT_PATH" --project "$PROJECT_NAME" --append
+# step 17 : remove
+
+rm -rf "$DATA_DIR"/*.tds
+rm -f  "$DATA_DIR"/*.zip
+rm -rf  "$DATA_DIR"/Data/Extracts/*.hyper
+
+# Step 18 : Log out
+
+execute_and_log "$TABCMD_PATH/tabcmd" logout
+
+ 
+
+ 
+
+ 
