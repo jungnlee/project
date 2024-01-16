@@ -1,0 +1,32 @@
+#!/bin/bash
+
+ 
+
+# origianl CSV
+
+SOURCE_FILE="list.csv"
+
+# Target CSV
+
+TARGET_FILE="target.csv"
+
+# read each line of origin csv file.
+
+while IFS= read -r line
+
+do
+
+    # execute the tabcmd command
+
+    echo "$line" > "$TARGET_FILE"
+    #add user_id to specific group                 
+    tabcmd addusers '회계손익_타부서' --users "$TARGET_FILE"
+    #login 
+    tabcmd login -s https://l-dex-bi.lottedfs.co.kr/ -u tableau_admin  -p Password1!
+
+ 
+
+done < "$SOURCE_FILE"
+
+
+ 
