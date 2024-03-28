@@ -1,7 +1,6 @@
 #!/bin/bash
 
  
-
 # origianl CSV
 
 SOURCE_FILE="list.csv"
