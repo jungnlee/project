@@ -1,7 +1,6 @@
 #!/bin/bash
 
  
-
 # Variables
 TABCMD_PATH="/sw/tableau/packages/customer-bin.20223.23.1012.0344"
 SERVER_URL="https://wwww.example.co.kr"
