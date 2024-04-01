@@ -1,0 +1,84 @@
+from datetime import datetime, timedelta
+import os
+from airflow import DAG
+from airflow.operators.python import PythonOperator, BranchPythonOperator
+from airflow.operators.dummy import DummyOperator
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from psycopg2 import connect
+
+
+def save_data_to_postgres(**kwargs):
+    # CSV 파일 경로를 Airflow Variable로부터 가져옵니다. (예시 경로: '/path/to/your/data_file.csv')
+    csv_file_path = os.path.join('/data/weather_data', datetime.now().strftime("%Y%m"))
+    file_name = "current_weather_data_korea_20240329022317.csv"
+    
+    # 데이터 디렉토리 경로와 파일명을 결합하여 전체 파일 경로를 생성합니다.
+    full_file_path = os.path.join(csv_file_path, file_name)
+
+    # PostgreSQL 연결 정보
+    conn_params = {
+        'host': '10.0.10.108',
+        'port': 5432,  # PostgreSQL의 기본 포트 번호
+        'database': 'postgres',
+        'user': 'postgres',
+        'password': 'postgres'
+    }
+
+    # PostgreSQL에 연결
+    conn = connect(**conn_params)
+    cursor = conn.cursor()
+
+    # COPY 명령어를 구성하여 데이터를 로드
+    copy_sql = f"""
+        COPY weather_data FROM STDIN WITH CSV HEADER
+        DELIMITER ','
+    """
+    with open(full_file_path, 'r') as f:
+        cursor.copy_expert(copy_sql, f)
+
+    # 변경 내용 커밋 및 연결 닫기
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    print("Data loaded into PostgreSQL successfully")
+
+def check_data_in_database(**kwargs):
+    # PostgreSQL 연결
+    hook = PostgresHook(postgres_conn_id='postgres_conn')
+    
+    # 쿼리 실행
+    query = "SELECT COUNT(*) FROM weather_data;"
+    result = hook.get_first(query)
+    num_rows = result[0]
+
+    # 결과 출력
+    print(f"Number of rows in weather_data table: {num_rows}")
+
+# DAG 정의
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(2023, 1, 8),
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 2,
+    'retry_delay': timedelta(minutes=2),
+}
+
+with DAG('simple_test', default_args=default_args, schedule_interval='@daily', catchup=False) as dag:
+    start_pipeline = DummyOperator(task_id='tsk_start_pipeline')
+
+    upload_data_to_postgres = PythonOperator(
+        task_id='save_data_to_postgres',
+        python_callable=save_data_to_postgres,
+        provide_context=True,
+    )
+
+    check_data_task = PythonOperator(
+        task_id='check_data_in_database',
+        python_callable=check_data_in_database,
+        provide_context=True,
+    )
+
+    start_pipeline >> upload_data_to_postgres >> check_data_task
