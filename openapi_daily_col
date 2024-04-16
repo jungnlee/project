@@ -1,0 +1,117 @@
+from airflow import DAG
+from datetime import timedelta, datetime, timezone
+from airflow.providers.http.sensors.http import HttpSensor
+import json
+from airflow.providers.http.operators.http import SimpleHttpOperator
+from airflow.operators.python import PythonOperator
+import pandas as pd
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+
+#섭씨에서 화씨로 변환 계산식
+def kelvin_to_fahrenheit(temp_in_kelvin):
+
+
+        temp_in_fahrenheit = (temp_in_kelvin - 273.15) * (9/5) +32
+        return temp_in_fahrenheit
+
+#Dataframe 정의 및 csv 출력
+def transform_load_data(task_instance):
+
+        data = task_instance.xcom_pull(task_ids="extract_weather_data")
+        city = data["name"]
+        weather_desctiption = data["weather"][0]['description']
+        temp_farenheit = kelvin_to_fahrenheit(data["main"]["temp"])
+        feels_like_farenheit = kelvin_to_fahrenheit(data["main"]["feels_like"])
+        min_temp_farenheit = kelvin_to_fahrenheit(data["main"]["temp_min"])
+        max_temp_farenheit = kelvin_to_fahrenheit(data["main"]["temp_max"])
+        pressure = data["main"]["pressure"]
+        humidity = data["main"]["humidity"]
+        wind_speed = data["wind"]["speed"]
+        time_of_record = datetime.fromtimestamp(data['dt'] + data['timezone'], tz=timezone.utc)
+        sunrise_time = datetime.fromtimestamp(data['sys']['sunrise'] + data['timezone'], tz=timezone.utc)
+        sunset_time = datetime.fromtimestamp(data['sys']['sunset'] + data['timezone'], tz=timezone.utc)
+
+
+        transformed_data = {"City": city,
+                               "Description" : weather_desctiption,
+                               "Temperature (F)" : temp_farenheit,
+                               "Feels Like (F)" : feels_like_farenheit,
+                               "Minimun Temp (F)" : min_temp_farenheit,
+                               "Maximum Temp (F)" : max_temp_farenheit,
+                               "Pressure" : pressure,
+                               "Humidty" : humidity,
+                               "Wind Speed" : wind_speed,
+                               "Time of Record" : time_of_record,
+                               "Sunrise (Local Time)" : sunrise_time,
+                               "Sunset (Local Time)" : sunset_time
+                               }
+        transformed_data_list = [transformed_data]
+        df_data = pd.DataFrame(transformed_data_list)
+        
+
+        now = datetime.now()
+        dt_string = now.strftime("%Y%m%d")
+        #파일명 지정
+        file_path = f"/tmp/current_weather_data_korea_{dt_string}.csv"
+        
+        #로컬 다운로드
+        df_data.to_csv(file_path, index=False)
+        task_instance.xcom_push(key='file_path', value=file_path)
+
+# s3에 업로드 함수 정의
+def upload_to_s3(task_instance):
+        file_path = task_instance.xcom_pull(key='file_path', task_ids='transform_load_weather_data')
+        bucket_name = 'dataintelligence-s3bucket'  # 고정된 값으로 사용
+        #s3 폴더 위치
+        s3_key = f"airflow_etl/weather_data/{file_path.split('/')[-1]}"
+        #connection 정보
+        hook = S3Hook('aws_airflow_conn')
+        #파일 올리기
+        hook.load_file(filename=file_path, key=s3_key, bucket_name=bucket_name)  
+
+        
+##DAG 정의
+default_args = {
+    'owner' : 'airflow',
+    'depends_on_past' : False,
+    'start_date' : datetime(2023, 1, 8),
+    'email' : ['julee@mz.co.kr'],
+    'email_on_failure' : False,
+    'email_on_retry' : False,
+    'retries' : 2,
+    'retry_delay' : timedelta(minutes=2)
+}
+
+with DAG('download_api_data_to_ec2',
+        default_args=default_args,
+        schedule_interval='0 9 * * *',
+        catchup=False) as dag:
+    
+        
+        #API 연결
+        is_weather_api_ready = HttpSensor(
+        task_id = 'is_weather_api_ready',
+        http_conn_id='weathermap_api',
+        endpoint='/data/2.5/weather?q=Korea&appid=fc2fa8d8b61fd0f4ed39548c2fa958c5'
+        )
+        #API data get 하기
+        extract_weather_data = SimpleHttpOperator(
+        task_id = 'extract_weather_data',
+        http_conn_id = 'weathermap_api',
+        endpoint='/data/2.5/weather?q=Korea&appid=fc2fa8d8b61fd0f4ed39548c2fa958c5',
+        method = 'GET',
+        response_filter= lambda r: json.loads(r.text)
+        )
+        #dataframe 으로 전처리하여 로컬에 다운로드
+        transform_load_weather_data = PythonOperator(
+        task_id= 'transform_load_weather_data',
+        python_callable=transform_load_data
+        )
+        #s3 에 업로드       
+        upload_file_to_s3 = PythonOperator(
+        task_id = 'upload_file_to_s3',
+        python_callable=upload_to_s3,
+       
+        )
+        # dag 프로세스
+        is_weather_api_ready >> extract_weather_data >> transform_load_weather_data >> upload_file_to_s3
