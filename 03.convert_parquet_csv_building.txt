@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from airflow import DAG
+#from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.sensors.filesystem import FileSensor
+# module to handle variables
+from airflow.models import Variable
+
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+
+#
+import os
+import pandas as pd
+from datetime import datetime, timedelta
+
+import pendulum
+
+today = datetime.now().date()
+yesterday = today - timedelta(days=1)
+year_str = yesterday.strftime("%Y")
+month_str = yesterday.strftime("%m")
+day_str = yesterday.strftime("%d")
+date_str = year_str+month_str+day_str
+table_name = "building"
+dag_name = "03.convert_parquet_csv_building"
+task_name = "convert_parquet_csv_building"
+
+file_task_name = "file_convert_parquet_csv_building"
+
+#wait_task_name = "wait_convert_parquet_csv_building"
+#ext_dag_name = "02.merge_parquet_building"
+#ext_task_id = "merge_parquet_building"
+
+input_dir = '/home/ec2-user/parquet-csv/s3files/'+table_name
+#output_dir = '/home/ec2-user/parquet-csv/csvfiles/'+table_name
+output_dir = '/home/ec2-user/jaffle_shop/seeds/'
+input_file = os.path.join(input_dir, f"merged_{table_name}_{date_str}.parquet")
+output_file = os.path.join(output_dir, f"ODS_{table_name}.csv")
+
+def parquet_to_csv(input_file, output_file):
+    try:
+        df = pd.read_parquet(input_file)
+        df.to_csv(output_file, index=False)
+        return True
+
+    except Exception as e:
+        print(f"Error converting Parquet to CSV: {e}")
+        return False
+
+    print ("completed convert")
+
+def convert_parquet_to_csv(**kwargs):
+
+    if parquet_to_csv(input_file, output_file):
+        print(f"Conversion for date merged_{date_str}.parquet completed successfully.")
+
+        for filename in os.listdir(input_dir):
+            if filename.endswith(".parquet"):
+                file_path = os.path.join(input_dir, filename)
+                os.remove(file_path)
+                print(f"Parquet file {file_path} deleted successfully.")
+
+            else:
+                print("Conversion failed. Parquet files were not deleted.")
+
+with DAG(
+    dag_id=dag_name,
+    schedule="30 3 * * *",
+    #schedule='@once',
+    start_date=pendulum.datetime(2024, 3, 27, tz="UTC"),
+    catchup=False
+) as dag:
+
+        file_check = FileSensor(
+                task_id = file_task_name,
+                #fs_conn_id = "file_sensor",
+                #filepath = "{tnb}/merged_{tnb}_{{ds_nodash}}.parquet",
+                #filepath = /table_name/merged_table_name_date_str.parquet,
+                fs_conn_id = "fs_default",
+                filepath = input_file,
+                dag = dag,
+        )
+
+        convert_task = PythonOperator(
+                task_id = task_name,
+                python_callable=convert_parquet_to_csv,
+                dag = dag,
+        )
+
+        trigger_dbt_seed_ods_task = TriggerDagRunOperator(
+                task_id = 'dbt_seed_ods_cpb',
+                trigger_dag_id = '04.dbt_building',
+                execution_date='{{data_interval_start}}',
+                #wait_for_completion = True,
+                dag = dag,
+        )
+
+        #convert_task
+        file_check >> convert_task >> trigger_dbt_seed_ods_task
+
+        #wait_task = ExternalTaskSensor(
+        #        task_id = wait_task_name,
+        #        external_dag_id = ext_dag_name,
+        #        external_task_id = ext_ask_id,
+        #        mode='reschedule',
+        #        poke_interval=60,
+        #        timeout=3600,
+        #        retries=3,
+        #        dag = dag,
+        #)
+
+        #convert_task >> wait_task
+        #wait_task >> convert_task
+
+

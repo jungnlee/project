@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import datetime
+
+import pendulum
+
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.empty import EmptyOperator
+
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+
+from airflow.operators.python import PythonOperator
+
+project_dir = "/home/ec2-user/jaffle_shop"
+profiles_dir = "/home/ec2-user/jaffle_shop"
+
+ods_table_name = "ODS_building"
+dw_table_name = "dw_building"
+dm_table_name = "dm_building"
+
+dbt_seed = '~/dbt-env/bin/dbt seed '
+dbt_run = '~/dbt-env/bin/dbt run '
+
+dag_name = "04.dbt_building"
+
+dbt_seed_cpb_scp = dbt_seed+"--project-dir "+project_dir+" --profiles-dir "+profiles_dir+" --select "+ods_table_name+".csv --full-refresh -t ora-ods "
+dbt_dw_cpb_scp = dbt_run+"-x -m "+dw_table_name+" --project-dir "+project_dir+" --profiles-dir "+profiles_dir+" -t ora-dw "
+dbt_dm_cpb_scp = dbt_run+"-x -m "+dm_table_name+" --project-dir "+project_dir+" --profiles-dir "+profiles_dir+" -t ora-dm "
+#dbt_dw_cpb_scp = "~/dbt-env/bin/dbt run -x -m +dw_building --project-dir /home/ec2-user/jaffle_shop --profiles-dir /home/ec2-user/jaffle_shop "
+#dbt_dm_cpb_scp = "~/dbt-env/bin/dbt run -x -m +dm_building --project-dir /home/ec2-user/jaffle_shop --profiles-dir /home/ec2-user/jaffle_shop "
+
+with DAG(
+    dag_id=dag_name,
+    #schedule="0 2 * * *",
+    schedule='@once',
+    start_date=pendulum.datetime(2024, 3, 27, tz="UTC"),
+    catchup=False
+) as dag:
+
+    dbt_seed_cpb = BashOperator(
+        task_id="dbt_seed_ods_cpb",
+        bash_command=dbt_seed_cpb_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_dw_cpb = BashOperator(
+        task_id="dbt_dw_cpb",
+        bash_command=dbt_dw_cpb_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_dm_cpb = BashOperator(
+        task_id="dbt_dm_cpb",
+        bash_command=dbt_dm_cpb_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_seed_cpb >> dbt_dw_cpb >> dbt_dm_cpb
+

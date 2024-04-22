@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import datetime
+
+import pendulum
+
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.empty import EmptyOperator
+
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+
+from airflow.operators.python import PythonOperator
+
+project_dir = "/home/ec2-user/jaffle_shop"
+profiles_dir = "/home/ec2-user/jaffle_shop"
+
+ods_table_name = "ODS_resource"
+dw_table_name = "dw_resource"
+dm_table_name = "dm_resource"
+
+dbt_seed = '~/dbt-env/bin/dbt seed '
+dbt_run = '~/dbt-env/bin/dbt run '
+
+dag_name = "04.dbt_resource"
+
+#dbt_seed_cpr_scp = "~/dbt-env/bin/dbt seed --project-dir /home/ec2-user/jaffle_shop --profiles-dir /home/ec2-user/jaffle_shop --select ""ODS_resource.csv"" --full-refresh " 
+#dbt_dw_cpr_scp = "~/dbt-env/bin/dbt run -x -m +dw_resource --project-dir /home/ec2-user/jaffle_shop --profiles-dir /home/ec2-user/jaffle_shop "
+#dbt_dm_cpr_scp = "~/dbt-env/bin/dbt run -x -m +dm_resource --project-dir /home/ec2-user/jaffle_shop --profiles-dir /home/ec2-user/jaffle_shop "
+dbt_seed_cpr_scp = dbt_seed+"--project-dir "+project_dir+" --profiles-dir "+profiles_dir+" --select "+ods_table_name+".csv --full-refresh -t ora-ods "
+dbt_dw_cpr_scp = dbt_run+"-x -m "+dw_table_name+" --project-dir "+project_dir+" --profiles-dir "+profiles_dir+" -t ora-dw "
+dbt_dm_cpr_scp = dbt_run+"-x -m "+dm_table_name+" --project-dir "+project_dir+" --profiles-dir "+profiles_dir+" -t ora-dm "
+
+with DAG(
+    dag_id=dag_name,
+    #schedule="0 2 * * *",
+    schedule='@once',
+    start_date=pendulum.datetime(2024, 3, 27, tz="UTC"),
+    catchup=False
+) as dag:
+
+    dbt_seed_cpr = BashOperator(
+        task_id="dbt_seed_ods_cpr",
+        bash_command=dbt_seed_cpr_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_dw_cpr = BashOperator(
+        task_id="dbt_dw_cpr",
+        bash_command=dbt_dw_cpr_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_dm_cpr = BashOperator(
+        task_id="dbt_dm_cpr",
+        bash_command=dbt_dm_cpr_scp,
+        do_xcom_push=True,
+    )
+
+    dbt_seed_cpr >> dbt_dw_cpr >> dbt_dm_cpr
+

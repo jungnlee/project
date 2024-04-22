@@ -1,0 +1,93 @@
+
+from __future__ import annotations
+
+import datetime
+
+import pendulum
+
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.empty import EmptyOperator
+
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+
+dag_name = "01.CopyFromS3ToLocal"
+
+with DAG(
+    dag_id = dag_name,
+    schedule="0 3 * * *",
+    #schedule='@once',
+    start_date=pendulum.datetime(2024, 3, 27, tz="UTC"),
+    catchup=False
+) as dag:
+
+    # This fails with 'Jinja template not found' error
+    # bash_command="/home/batcher/test.sh",
+    # This works (has a space after)
+
+    # [START howto_operator_bash]
+    run_cpb = BashOperator(
+        task_id="run_cpb",
+        bash_command="/home/ec2-user/parquet-csv/01.copy_parquet/copy_parquet_building.sh ",
+        do_xcom_push=True,
+    )
+
+    run_cpr = BashOperator(
+        task_id="run_cpr",
+        bash_command="/home/ec2-user/parquet-csv/01.copy_parquet/copy_parquet_resource.sh ",
+        do_xcom_push=True,
+    )
+
+    run_cprsv = BashOperator(
+        task_id="run_cprsv",
+        bash_command="/home/ec2-user/parquet-csv/01.copy_parquet/copy_parquet_resource_status_v.sh ",
+        do_xcom_push=True,
+    )
+
+    run_cps = BashOperator(
+        task_id="run_cps",
+        bash_command="/home/ec2-user/parquet-csv/01.copy_parquet/copy_parquet_space.sh ",
+        do_xcom_push=True,
+    )
+    # [END howto_operator_bash]
+
+    trigger_merge_space_task = TriggerDagRunOperator(
+            task_id = 'merge_parquet_space',
+            trigger_dag_id = '02.merge_parquet_space',
+            execution_date='{{data_interval_start}}',
+            #wait_for_completion = True,
+            dag = dag,
+    )
+
+    trigger_merge_building_task = TriggerDagRunOperator(
+            task_id = 'merge_parquet_building',
+            trigger_dag_id = '02.merge_parquet_building',
+            execution_date='{{data_interval_start}}',
+            #wait_for_completion = True,
+            dag = dag,
+    )
+
+    trigger_merge_resource_task = TriggerDagRunOperator(
+            task_id = 'merge_parquet_resource',
+            trigger_dag_id = '02.merge_parquet_resource',
+            execution_date='{{data_interval_start}}',
+            #wait_for_completion = True,
+            dag = dag,
+    )
+
+    trigger_merge_resource_status_v_task = TriggerDagRunOperator(
+            task_id = 'merge_parquet_resource_status_v',
+            trigger_dag_id = '02.merge_parquet_resource_status_v',
+            execution_date='{{data_interval_start}}',
+            #wait_for_completion = True,
+            dag = dag,
+    )
+
+    #run_cpb >> run_cpr >> run_cprsv >> run_cps 
+    #run_cpb >> run_cpr >> run_cprsv >> run_cps >> [trigger_merge_building_task, trigger_merge_space_task]
+
+    run_cpb >> trigger_merge_building_task
+    run_cps >> trigger_merge_space_task
+    run_cpr >> trigger_merge_resource_task
+    run_cprsv >> trigger_merge_resource_status_v_task
+
